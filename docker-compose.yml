@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ../edu-platform-backend
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../edu-platform-backend/.env.local  # можно переключать на .env.staging или .env.prod
+    environment:
+      - ENV=local
+    depends_on:
+      - db
+    restart: always
+
+  frontend:
+    build: ../edu-platform-frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ../edu-platform-frontend/.env.local
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    restart: always
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: edu_platform
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      - db
+    volumes:
+      - ../edu-platform-backend/migrations:/migrations
+    command: [
+      "-path=/migrations",
+      "-database=postgres://postgres:yourpassword@db:5432/edu_platform?sslmode=disable",
+      "up"
+    ]
+    restart: on-failure
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    restart: always
+
+  loki:
+    image: grafana/loki:2.9.3
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml
+    restart: always
+    command: -config.file=/etc/loki/config.yml
+
+  promtail:
+    image: grafana/promtail:2.9.3
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./loki/promtail-local-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    restart: always
+
+  grafana:
+    image: grafana/grafana-oss:10.4.1
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+      - loki
+    restart: always
+
+volumes:
+  postgres_data:
+  grafana_data:
